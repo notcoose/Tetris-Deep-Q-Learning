@@ -1,5 +1,6 @@
 import gymnasium as gym
 import cv2
+
 from tetris_gymnasium.envs.tetris import Tetris
 
 if __name__ == "__main__":
