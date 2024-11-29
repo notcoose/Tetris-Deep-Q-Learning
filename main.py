@@ -3,9 +3,41 @@ import cv2
 import torch
 import numpy as np
 import datetime as dt
+import matplotlib.pyplot as plt
+from seaborn import set_style
 from tetris_gymnasium.envs.tetris import Tetris
 from deepqnetwork import deepqnetwork
 from experience_replay import ExperienceReplay
+
+def plot_reward(rewards, i):
+    set_style("whitegrid")
+    plt.figure(figsize=(10,6))
+    plt.plot(rewards)
+    plt.title(f"Episode Rewards Over Time")
+    plt.xlabel("Episodes")
+    plt.ylabel("Rewards")
+    plt.savefig(f"plots/Reward/reward_plot_{i}.png")
+    plt.close()
+
+def plot_epsilon(epsilons, i):
+    set_style("whitegrid")
+    plt.figure(figsize=(10,6))
+    plt.plot(epsilons)
+    plt.title("Episode Epsilon Over Time")
+    plt.xlabel("Episodes")
+    plt.ylabel("Epsilon")
+    plt.savefig(f"plots/Epsilon/epsilon_plot_{i}.png")
+    plt.close()
+
+def plot_cum_rewards(cum_rewards, i):
+    set_style("whitegrid")
+    plt.figure(figsize=(10,6))
+    plt.plot(cum_rewards)
+    plt.title("Cumulative Rewards Over Time")
+    plt.xlabel("Episodes")
+    plt.ylabel("Rewards")
+    plt.savefig(f"plots/Cumulative_Rewards/cumulative_plot{i}.png")
+    plt.close()
 
 def preprocess_state(observation):
     # Convert observation dictionary to flat array
@@ -39,6 +71,10 @@ class TetrisAgent:
         # Initialize environment
         env = gym.make("tetris_gymnasium/Tetris", render_mode = render_mode)
         rewards = []
+        cumReward = 0
+        cum_rewards = [0]
+
+        state,_ = env.reset(seed=42)
     
         # get action and state space dims
         state_dim = preprocess_state(state).shape[0]  #temp
@@ -54,7 +90,7 @@ class TetrisAgent:
             epsilon = 1.0  #initial exploration rate
             epsilon_min = 0.1  #min exploration rate
             epsilon_decay = 0.995  #decay factor
-            epsilon_hist = []  #store epsilon values for plotting
+            epsilon_hist = [epsilon]  #store epsilon values for plotting
             gamma = 0.99
 
             #"target" network
@@ -71,8 +107,10 @@ class TetrisAgent:
             #target_dqn.load_state_dict(torch.load())
             #target_dqn.eval()
 
+        iteration = 1;
         #arbitrary number of episodes, change as you wish
-        for episode in range(100000):
+        for episode in range(1000):
+            episode += 1 #to graph all graphs properly
             terminated = False
             episode_reward = 0.0
             state, _ = env.reset(seed=42)
@@ -104,13 +142,24 @@ class TetrisAgent:
 
             traininglog.write(f"Episode: {episode}, Reward: {episode_reward}\n")
             rewards.append(episode_reward)
+            cumReward += episode_reward
+            cum_rewards.append(cumReward)
             
             #update epsilon
             if epsilon > epsilon_min:
                 epsilon *= epsilon_decay
             
+            epsilon_hist.append(epsilon)
+            
             # Update current state
             state = next_state
+
+            if episode % 100 == 0:
+                plot_reward(rewards, iteration)
+                plot_epsilon(epsilon_hist, iteration)
+                plot_cum_rewards(cum_rewards, iteration)
+                iteration+=1
+
         
             cv2.waitKey(300)  # timeout to see the movement
         
