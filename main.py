@@ -99,15 +99,19 @@ class TetrisAgent:
             #copies weights and biases from policy network to target network
             target_dqn.load_state_dict(dqn.state_dict())
 
-            #syncs target network with policy network
+            #Adam optimizer initialization, learning rate set to 0.001
+            self.optimizer = torch.optim.Adam(dqn.parameters(), lr=0.001)            
+
+            #needs syncs target network with policy network
             count = 0
+
 
         #else if not training
             # need to add loading of model
             #target_dqn.load_state_dict(torch.load())
             #target_dqn.eval()
 
-        iteration = 1;
+        iteration = 1
         #arbitrary number of episodes, change as you wish
         for episode in range(1000):
             episode += 1 #to graph all graphs properly
@@ -166,6 +170,44 @@ class TetrisAgent:
         print("Game Over!")
         print(f"Final Buffer Size: {len(replay_buffer)}")
         traininglog.close()
+
+    #optimizer for dqn/policy network
+    def optimize(self, small_batch, dqn, target_dqn):
+        #for state, action, next_state, reward, terminated in small_batch:
+        #    if terminated:
+        #        target = reward
+        #    else:
+        #        with torch.no_grad():
+        #            target_qval = reward + self.discount_factor * torch.max(target_dqn(next_state))
+        #        
+        #    current_qval = dqn(state)
+        #
+
+
+        # Transpose the list of experiences and separate each element
+        states, actions, new_states, rewards, terminations = zip(*small_batch)
+
+        #stacking tensors
+        states = torch.stack(states)
+        actions = torch.stack(actions)
+        new_states = torch.stack(new_states)
+        rewards = torch.stack(rewards)
+        terminations = torch.tensor(terminations).float()
+
+        with torch.no_grad():
+            #calculating target q values (expected returns), using .99 as discount factor
+            target = rewards + (1 - terminations) * .99 * target_dqn(new_states).max(dim=1)[0]
+
+            #calcuate current policy q values
+            current_qval = dqn(states).gather(dim=1, index=actions.unsqueeze(dim=1)).squeeze()
+
+        #using MSE, change to whatever loss function you want
+        loss = torch.nn.MSELoss(current_qval, target)
+
+        #zeroing gradients, backpropagating, and updating weights and biases
+        self.optimizer.zero_grad() 
+        loss.backward()
+        self.optimizer.step()
 
 if __name__ == "__main__":
     agent = TetrisAgent()
