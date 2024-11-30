@@ -4,10 +4,15 @@ import torch
 import numpy as np
 import datetime as dt
 import matplotlib.pyplot as plt
+import os
+
 from seaborn import set_style
 from tetris_gymnasium.envs.tetris import Tetris
 from deepqnetwork import deepqnetwork
 from experience_replay import ExperienceReplay
+
+model_dir_name = "models"
+os.makedirs(model_dir_name, exist_ok=True)
 
 def plot_reward(rewards, i):
     set_style("whitegrid")
@@ -61,6 +66,8 @@ def epsilon_greedy_action(dqn, state, epsilon, action_dim):
 
 class TetrisAgent:
     def run(self, is_training = True, render_mode = "ansi"):
+        self.savedmodel = os.path.join(model_dir_name, "tetris_model.pt")
+
         #creating and writing to log file
         if(is_training):
             traininglog = open("traininglog.txt", "w")
@@ -71,6 +78,7 @@ class TetrisAgent:
         # Initialize environment
         env = gym.make("tetris_gymnasium/Tetris", render_mode = render_mode)
         rewards = []
+        best_reward = 0
         cumReward = 0
         cum_rewards = [0]
 
@@ -102,16 +110,12 @@ class TetrisAgent:
             #Adam optimizer initialization, learning rate set to 0.001
             self.optimizer = torch.optim.Adam(dqn.parameters(), lr=0.001)            
 
-            #needs syncs target network with policy network
-            count = 0
-
-
-        #else if not training
-            # need to add loading of model
-            #target_dqn.load_state_dict(torch.load())
-            #target_dqn.eval()
+        else:
+            dqn.load_state_dict(torch.load(self.savedmodel))
+            dqn.eval()
 
         iteration = 1
+        count = 0
         #arbitrary number of episodes, change as you wish
         for episode in range(1000):
             episode += 1 #to graph all graphs properly
@@ -120,7 +124,7 @@ class TetrisAgent:
             state, _ = env.reset(seed=42)
 
             #1000 is arbitrary, change as you wish for early stopping
-            while not terminated and episode_reward < 1000:
+            while not terminated and episode_reward < 10000:
                 print(env.render() + "\n")
         
                 # Get current state
@@ -142,19 +146,38 @@ class TetrisAgent:
                         preprocess_state(next_state), 
                         terminated
                     )
+
                     count += 1    
 
             traininglog.write(f"Episode: {episode}, Reward: {episode_reward}\n")
+
+            if is_training and episode_reward > best_reward:
+                traininglog.write(f"New best reward: {episode_reward}\n")
+                best_reward = episode_reward
+                torch.save(dqn.state_dict(), self.savedmodel)
+                traininglog.write(f"Model saved\n")
+
+                #update target network every 1000 steps (arbitrary)
+                if(len(replay_buffer) > 1000):
+                    #small batch size is 32, change as you wish
+                    small_batch = replay_buffer.sample(32)
+                    self.optimize(small_batch, dqn, target_dqn)
+
+                    #update epsilon
+                    if epsilon > epsilon_min:
+                        epsilon *= epsilon_decay
+                    
+                    epsilon_hist.append(epsilon)
+
+                    #copies policy to target network eveyr 10 steps, change as you wish
+                    if count >= 10:
+                        target_dqn.load_state_dict(dqn.state_dict())
+                        count = 0
+
             rewards.append(episode_reward)
             cumReward += episode_reward
             cum_rewards.append(cumReward)
-            
-            #update epsilon
-            if epsilon > epsilon_min:
-                epsilon *= epsilon_decay
-            
-            epsilon_hist.append(epsilon)
-            
+        
             # Update current state
             state = next_state
 
