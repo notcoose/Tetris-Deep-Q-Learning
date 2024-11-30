@@ -208,7 +208,7 @@ class TetrisAgent:
 
 
         # Transpose the list of experiences and separate each element
-        states, actions, new_states, rewards, terminations = zip(*small_batch)
+        states, actions, new_states, rewards, terminations = small_batch
 
         #stacking tensors
         states = torch.stack(states)
