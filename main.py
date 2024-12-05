@@ -120,60 +120,63 @@ class TetrisAgent:
         return state_batch, reward_batch, next_state_batch, done_batch
 
     # main training loop for the agent
-    def train(self):
-        buffer_cap = self.replay_memory_size / 15
-        episode = 0
-        best_reward = 0
-        cum_reward = 0
-        cum_rewards = []
-        scores = []
-        rewards = []
-        epsilons = []
-        env = Tetris(width=self.width, height=self.height, block_size=self.block_size)
-        model = DQN()
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.learning_rate)
-        criterion = nn.MSELoss()
-        state = env.reset()
-        memory = deque(maxlen=self.replay_memory_size)
+    # main training loop for the agent
+def train(self, train_model=True):
+    buffer_cap = self.replay_memory_size / 15
+    episode = 0
+    best_reward = 0
+    cum_reward = 0
+    cum_rewards = []
+    scores = []
+    rewards = []
+    epsilons = []
+    env = Tetris(width=self.width, height=self.height, block_size=self.block_size)
+    model = DQN()
+    optimizer = torch.optim.Adam(model.parameters(), lr=self.learning_rate)
+    criterion = nn.MSELoss()
+    state = env.reset()
+    memory = deque(maxlen=self.replay_memory_size)
 
-        while episode < self.episodes:
-            next_moves = env.get_next_states()
-            epsilon = max(self.epsilon_min, self.epsilon - (self.epsilon_decay * episode))
-            epsilons.append(epsilon)
-            next_actions, next_states = zip(*next_moves.items())
-            next_states = torch.stack(next_states)
-            model.eval()
-            with torch.no_grad():
-                predictions = model(next_states)[:, 0]
+    while episode < self.episodes:
+        next_moves = env.get_next_states()
+        epsilon = max(self.epsilon_min, self.epsilon - (self.epsilon_decay * episode))
+        epsilons.append(epsilon)
+        next_actions, next_states = zip(*next_moves.items())
+        next_states = torch.stack(next_states)
+        model.eval()
+        with torch.no_grad():
+            predictions = model(next_states)[:, 0]
 
-            # choose action based on epsilon-greedy policy
-            if random() < epsilon:
-                index = next_actions.index(sample(next_actions, 1)[0])
-            else:
-                index = torch.argmax(predictions).item()
+        # choose action based on epsilon-greedy policy
+        if random() < epsilon:
+            index = next_actions.index(sample(next_actions, 1)[0])
+        else:
+            index = torch.argmax(predictions).item()
 
-            # take action
-            action = next_actions[index]
-            next_state = next_states[index, :]
-            reward, done = env.step(action, render=True)
+        # take action
+        action = next_actions[index]
+        next_state = next_states[index, :]
+        reward, done = env.step(action, render=True)
 
-            # update metrics
-            rewards.append(reward)
-            cum_reward += reward
-            cum_rewards.append(cum_reward)
-            memory.append([state, reward, next_state, done])
+        # update metrics
+        rewards.append(reward)
+        cum_reward += reward
+        cum_rewards.append(cum_reward)
+        memory.append([state, reward, next_state, done])
 
-            # check if buffer is passed
-            if done:
-                final_cleared = env.cleared_lines
-                final_score = env.score
-                state = env.reset()
-            else:
-                state = next_state
-                continue
-            if len(memory) < buffer_cap:
-                continue
+        # check if buffer is passed
+        if done:
+            final_cleared = env.cleared_lines
+            final_score = env.score
+            state = env.reset()
+        else:
+            state = next_state
+            continue
+        if len(memory) < buffer_cap:
+            continue
 
+        # If not training, skip optimization
+        if train_model:
             # prepare training batch
             state_batch, reward_batch, next_state_batch, done_batch = self.prepare_batch(memory)
             q_vals = model(state_batch)
@@ -185,30 +188,34 @@ class TetrisAgent:
             # compute target values
             y_batch = self.compute_targets(reward_batch, done_batch, next_pred_batch, self.gamma)
 
-            episode += 1
-            scores.append(final_score)
             optimizer.zero_grad()
             loss_eq = criterion(q_vals, y_batch)
             loss_eq.backward()
             optimizer.step()
+        else:
+            model = torch.load("{}/tetris".format(os.path.dirname(os.path.realpath(__file__))))
 
-            # print episode summary
-            print("Episode: {}/{}, Score: {}, Cleared lines: {}".format(
-                episode,
-                self.episodes,
-                final_score,
-                final_cleared))
+        episode += 1
+        scores.append(final_score)
 
-            # periodically plot and save model
-            if episode % 50 == 0:
-                plot_reward(rewards, episode)
-                plot_scores(scores, episode)
-                plot_epsilon(epsilons, episode)
-                plot_cum_rewards(cum_rewards, episode)
-                plot_running_average(scores, episode)
+        # print episode summary
+        print("Episode: {}/{}, Score: {}, Cleared lines: {}".format(
+            episode,
+            self.episodes,
+            final_score,
+            final_cleared))
 
-            if episode % 1000 == 0:
-                torch.save(model, "{}/tetris_{}".format(os.path.dirname(os.path.realpath(__file__)), episode))
+        # periodically plot and save model
+        if episode % 50 == 0:
+            plot_reward(rewards, episode)
+            plot_scores(scores, episode)
+            plot_epsilon(epsilons, episode)
+            plot_cum_rewards(cum_rewards, episode)
+            plot_running_average(scores, episode)
+
+        if episode % 1000 == 0 and train_model:
+            torch.save(model, "{}/tetris_{}".format(os.path.dirname(os.path.realpath(__file__)), episode))
+
 
 # entry point for training the agent
 if __name__ == "__main__":
