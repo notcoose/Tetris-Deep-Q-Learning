@@ -1,237 +1,216 @@
-import gymnasium as gym
-import cv2
-import torch
-import numpy as np
-import datetime as dt
-import matplotlib.pyplot as plt
 import os
-
+import yaml
+from random import random, sample
+import torch
+import torch.nn as nn
+import numpy as np
+import seaborn as sns
+from deepqnetwork import DQN
+from tetris import Tetris
+from collections import deque
 from seaborn import set_style
-from tetris_gymnasium.envs.tetris import Tetris
-from deepqnetwork import deepqnetwork
-from experience_replay import ExperienceReplay
+import matplotlib.pyplot as plt
 
-model_dir_name = "models"
-os.makedirs(model_dir_name, exist_ok=True)
-
+# function to plot rewards over episodes
 def plot_reward(rewards, i):
-    set_style("whitegrid")
-    plt.figure(figsize=(10,6))
-    plt.plot(rewards)
-    plt.title(f"Episode Rewards Over Time")
-    plt.xlabel("Episodes")
+    sns.set_style("whitegrid")
+    plot_dir = "plots/Reward"
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(rewards)), rewards, marker='o', label="Rewards")
+    plt.title("Episode Rewards Over Time")
+    plt.xlabel("Index")
     plt.ylabel("Rewards")
-    plt.savefig(f"plots/Reward/reward_plot_{i}.png")
+    plt.legend()
+    plt.savefig(f"{plot_dir}/reward_plot_{i}.png")
     plt.close()
 
+# function to plot scores over episodes
+def plot_scores(scores, i):
+    plot_dir = "plots/Score"
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(scores)), scores, linestyle='-', linewidth=2, label="Scores")
+    plt.title("Episode Rewards Over Time")
+    plt.xlabel("Episode")
+    plt.ylabel("Scores")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.savefig(f"{plot_dir}/score_plot_{i}.png")
+    plt.close()
+
+# function to plot epsilon decay over episodes
 def plot_epsilon(epsilons, i):
     set_style("whitegrid")
-    plt.figure(figsize=(10,6))
+    plot_dir = "plots/Epsilon"
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.figure(figsize=(10, 6))
     plt.plot(epsilons)
     plt.title("Episode Epsilon Over Time")
     plt.xlabel("Episodes")
     plt.ylabel("Epsilon")
-    plt.savefig(f"plots/Epsilon/epsilon_plot_{i}.png")
+    plt.savefig(f"{plot_dir}/epsilon_plot_{i}.png")
     plt.close()
 
+# function to plot cumulative rewards over episodes
 def plot_cum_rewards(cum_rewards, i):
-    set_style("whitegrid")
-    plt.figure(figsize=(10,6))
-    plt.plot(cum_rewards)
-    plt.title("Cumulative Rewards Over Time")
-    plt.xlabel("Episodes")
+    sns.set_style("whitegrid")
+    plot_dir = "plots/Reward"
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(cum_rewards)), cum_rewards, marker='o', label="Rewards")
+    plt.title("Episode Rewards Over Time")
+    plt.xlabel("Index")
     plt.ylabel("Rewards")
-    plt.savefig(f"plots/Cumulative_Rewards/cumulative_plot{i}.png")
+    plt.legend()
+    plt.savefig(f"{plot_dir}/reward_plot_{i}.png")
     plt.close()
 
-def preprocess_state(observation):
-    # Convert observation dictionary to flat array
-    state = []
-    for value in observation.values():
-        if isinstance(value, np.ndarray):
-            state.extend(value.flatten())
-    return np.array(state, dtype=np.float32)
+# function to plot running average of scores
+def plot_running_average(scores, i, window_size=10):
+    plot_dir = "plots/Score_avg"
+    os.makedirs(plot_dir, exist_ok=True)
+    running_avg = np.convolve(scores, np.ones(window_size) / window_size, mode='valid')
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(len(running_avg)), running_avg, linestyle='-', linewidth=2, label="Running Average")
+    plt.title("Running Average of Episode Rewards")
+    plt.xlabel("Episode")
+    plt.ylabel("Running Average Score")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.savefig(f"{plot_dir}/running_avg_plot_{i}.png")
+    plt.close()
 
-def epsilon_greedy_action(dqn, state, epsilon, action_dim):
-    #random number is used to decide action
-    if np.random.rand() < epsilon:
-        #explore- choose a random action
-        return np.random.randint(action_dim)
-    else:
-        #exploit- choose the action with the highest q-val
-        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-        with torch.no_grad():
-            q_values = dqn(state_tensor)
-        return torch.argmax(q_values).item()
-
+# class representing the tetris agent
 class TetrisAgent:
-    def run(self, is_training = True, render_mode = "ansi"):
-        self.savedmodel = os.path.join(model_dir_name, "tetris_model.pt")
 
-        #creating and writing to log file
-        if(is_training):
-            traininglog = open("traininglog.txt", "w")
+    def __init__(self, parameter_set):
+        # load parameters from yaml file
+        with open('parameters.yaml', 'r') as f:
+            all_parameters = yaml.safe_load(f)
+            parameters = all_parameters[parameter_set]
+            self.parameter_set = parameter_set
+            self.learning_rate = parameters['learning_rate']
+            self.batch_size = parameters['batch_size']
+            self.episodes = parameters['episodes']
+            self.gamma = parameters['gamma']
+            self.epsilon = parameters['epsilon']
+            self.epsilon_decay = parameters['epsilon_decay']
+            self.epsilon_min = parameters['epsilon_min']
+            self.replay_memory_size = parameters['replay_memory_size']
+            self.target_update = parameters['target_update']
+            self.width = parameters['width']
+            self.height = parameters['height']
+            self.block_size = parameters['block_size']
 
-            start = dt.datetime.now()
-            traininglog.write(f"Start time: {start}\n")
+    # function to prepare and calculate target q-values
+    def compute_targets(reward_batch, done_batch, next_pred_batch, gamma):
+        return torch.cat(
+            tuple(reward if done else reward + (prediction * gamma)
+                for reward, done, prediction in zip(reward_batch, done_batch, next_pred_batch))
+        )[:, None]
 
-        # Initialize environment
-        env = gym.make("tetris_gymnasium/Tetris", render_mode = render_mode)
-        rewards = []
+    # function to prepare a batch from replay memory
+    def prepare_batch(self, memory):
+        batch = sample(memory, min(len(memory), self.batch_size))
+        state_batch, reward_batch, next_state_batch, done_batch = zip(*batch)
+        state_batch = torch.stack(tuple(state for state in state_batch))
+        reward_batch = torch.from_numpy(np.array(reward_batch, dtype=np.float32)[:, None])
+        next_state_batch = torch.stack(tuple(state for state in next_state_batch))
+        return state_batch, reward_batch, next_state_batch, done_batch
+
+    # main training loop for the agent
+    def train(self):
+        buffer_cap = self.replay_memory_size / 15
+        episode = 0
         best_reward = 0
-        cumReward = 0
-        cum_rewards = [0]
+        cum_reward = 0
+        cum_rewards = []
+        scores = []
+        rewards = []
+        epsilons = []
+        env = Tetris(width=self.width, height=self.height, block_size=self.block_size)
+        model = DQN()
+        optimizer = torch.optim.Adam(model.parameters(), lr=self.learning_rate)
+        criterion = nn.MSELoss()
+        state = env.reset()
+        memory = deque(maxlen=self.replay_memory_size)
 
-        state,_ = env.reset(seed=42)
-    
-        # get action and state space dims
-        state_dim = preprocess_state(state).shape[0]  #temp
-        action_dim = env.action_space.n #number of actions
+        while episode < self.episodes:
+            next_moves = env.get_next_states()
+            epsilon = max(self.epsilon_min, self.epsilon - (self.epsilon_decay * episode))
+            epsilons.append(epsilon)
+            next_actions, next_states = zip(*next_moves.items())
+            next_states = torch.stack(next_states)
+            model.eval()
+            with torch.no_grad():
+                predictions = model(next_states)[:, 0]
 
-        #"policy" network
-        dqn = deepqnetwork(state_dim, action_dim)
+            # choose action based on epsilon-greedy policy
+            if random() < epsilon:
+                index = next_actions.index(sample(next_actions, 1)[0])
+            else:
+                index = torch.argmax(predictions).item()
 
-        if is_training:
-            replay_buffer = ExperienceReplay(capacity=10000, state_dim=state_dim)
+            # take action
+            action = next_actions[index]
+            next_state = next_states[index, :]
+            reward, done = env.step(action, render=True)
 
-            #initialize greedy params
-            epsilon = 1.0  #initial exploration rate
-            epsilon_min = 0.1  #min exploration rate
-            epsilon_decay = 0.995  #decay factor
-            epsilon_hist = [epsilon]  #store epsilon values for plotting
-            gamma = 0.99
+            # update metrics
+            rewards.append(reward)
+            cum_reward += reward
+            cum_rewards.append(cum_reward)
+            memory.append([state, reward, next_state, done])
 
-            #"target" network
-            target_dqn = deepqnetwork(state_dim, action_dim)
+            # check if buffer is passed
+            if done:
+                final_cleared = env.cleared_lines
+                final_score = env.score
+                state = env.reset()
+            else:
+                state = next_state
+                continue
+            if len(memory) < buffer_cap:
+                continue
 
-            #copies weights and biases from policy network to target network
-            target_dqn.load_state_dict(dqn.state_dict())
+            # prepare training batch
+            state_batch, reward_batch, next_state_batch, done_batch = self.prepare_batch(memory)
+            q_vals = model(state_batch)
+            model.eval()
+            with torch.no_grad():
+                next_pred_batch = model(next_state_batch)
+            model.train()
 
-            #Adam optimizer initialization, learning rate set to 0.001
-            self.optimizer = torch.optim.Adam(dqn.parameters(), lr=0.001)            
+            # compute target values
+            y_batch = self.compute_targets(reward_batch, done_batch, next_pred_batch, self.gamma)
 
-        else:
-            dqn.load_state_dict(torch.load(self.savedmodel))
-            dqn.eval()
+            episode += 1
+            scores.append(final_score)
+            optimizer.zero_grad()
+            loss_eq = criterion(q_vals, y_batch)
+            loss_eq.backward()
+            optimizer.step()
 
-        iteration = 1
-        count = 0
-        #arbitrary number of episodes, change as you wish
-        for episode in range(1000):
-            episode += 1 #to graph all graphs properly
-            terminated = False
-            episode_reward = 0.0
-            state, _ = env.reset(seed=42)
+            # print episode summary
+            print("Episode: {}/{}, Score: {}, Cleared lines: {}".format(
+                episode,
+                self.episodes,
+                final_score,
+                final_cleared))
 
-            #1000 is arbitrary, change as you wish for early stopping
-            while not terminated and episode_reward < 10000:
-                print(env.render() + "\n")
-        
-                # Get current state
-                current_state = preprocess_state(state)
-        
-                # Get action using epsilon-greedy algorithm
-                action = epsilon_greedy_action(dqn, current_state, epsilon, action_dim)
-        
-                # Take action
-                next_state, reward, terminated, truncated, info = env.step(action)
-                episode_reward += reward
+            # periodically plot and save model
+            if episode % 50 == 0:
+                plot_reward(rewards, episode)
+                plot_scores(scores, episode)
+                plot_epsilon(epsilons, episode)
+                plot_cum_rewards(cum_rewards, episode)
+                plot_running_average(scores, episode)
 
-                if is_training:
-                    # Store transition in replay buffer
-                    replay_buffer.store(
-                        current_state, 
-                        action, 
-                        reward, 
-                        preprocess_state(next_state), 
-                        terminated
-                    )
+            if episode % 1000 == 0:
+                torch.save(model, "{}/tetris_{}".format(os.path.dirname(os.path.realpath(__file__)), episode))
 
-                    count += 1    
-
-            traininglog.write(f"Episode: {episode}, Reward: {episode_reward}\n")
-
-            if is_training and episode_reward > best_reward:
-                traininglog.write(f"New best reward: {episode_reward}\n")
-                best_reward = episode_reward
-                torch.save(dqn.state_dict(), self.savedmodel)
-                traininglog.write(f"Model saved\n")
-
-                #update target network every 1000 steps (arbitrary)
-                if(len(replay_buffer) > 1000):
-                    #small batch size is 32, change as you wish
-                    small_batch = replay_buffer.sample(32)
-                    self.optimize(small_batch, dqn, target_dqn)
-
-                    #update epsilon
-                    if epsilon > epsilon_min:
-                        epsilon *= epsilon_decay
-                    
-                    epsilon_hist.append(epsilon)
-
-                    #copies policy to target network eveyr 10 steps, change as you wish
-                    if count >= 10:
-                        target_dqn.load_state_dict(dqn.state_dict())
-                        count = 0
-
-            rewards.append(episode_reward)
-            cumReward += episode_reward
-            cum_rewards.append(cumReward)
-        
-            # Update current state
-            state = next_state
-
-            if episode % 100 == 0:
-                plot_reward(rewards, iteration)
-                plot_epsilon(epsilon_hist, iteration)
-                plot_cum_rewards(cum_rewards, iteration)
-                iteration+=1
-
-        
-            cv2.waitKey(300)  # timeout to see the movement
-        
-        print("Game Over!")
-        print(f"Final Buffer Size: {len(replay_buffer)}")
-        traininglog.close()
-
-    #optimizer for dqn/policy network
-    def optimize(self, small_batch, dqn, target_dqn):
-        #for state, action, next_state, reward, terminated in small_batch:
-        #    if terminated:
-        #        target = reward
-        #    else:
-        #        with torch.no_grad():
-        #            target_qval = reward + self.discount_factor * torch.max(target_dqn(next_state))
-        #        
-        #    current_qval = dqn(state)
-        #
-
-
-        # Transpose the list of experiences and separate each element
-        states, actions, new_states, rewards, terminations = small_batch
-
-        #stacking tensors
-        states = torch.stack(states)
-        actions = torch.stack(actions)
-        new_states = torch.stack(new_states)
-        rewards = torch.stack(rewards)
-        terminations = torch.tensor(terminations).float()
-
-        with torch.no_grad():
-            #calculating target q values (expected returns), using .99 as discount factor
-            target = rewards + (1 - terminations) * .99 * target_dqn(new_states).max(dim=1)[0]
-
-            #calcuate current policy q values
-            current_qval = dqn(states).gather(dim=1, index=actions.unsqueeze(dim=1)).squeeze()
-
-        #using MSE, change to whatever loss function you want
-        loss = torch.nn.MSELoss(current_qval, target)
-
-        #zeroing gradients, backpropagating, and updating weights and biases
-        self.optimizer.zero_grad() 
-        loss.backward()
-        self.optimizer.step()
-
+# entry point for training the agent
 if __name__ == "__main__":
-    agent = TetrisAgent()
-    agent.run()
+    agent = TetrisAgent(parameter_set="tetris")
+    agent.train()

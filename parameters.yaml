@@ -1,0 +1,13 @@
+tetris:
+  learning_rate: 0.0005
+  batch_size: 32
+  episodes: 4000
+  gamma: 0.99
+  epsilon: 1
+  epsilon_decay: 0.001
+  epsilon_min: 0.01
+  target_update: 10
+  replay_memory_size: 30000
+  width: 10
+  height: 20
+  block_size: 30

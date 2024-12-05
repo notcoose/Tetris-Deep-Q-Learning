@@ -1,27 +1,40 @@
 import torch
-from torch import nn
-import torch.nn.functional as F
-import numpy as np #will prob need to flatten observation dictionary of np arrays
+import torch.nn as nn
+state_dim= 944
+action_dim = 8
+class DQN(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super(DQN, self).__init__()
+        self.model = nn.Sequential(
+            #input
+            nn.Linear(state_dim, state_dim//2),
+            nn.ReLU(),
 
-class deepqnetwork(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim = 256):
-        super(deepqnetwork, self).__init__()
-        
-        #basic network structure, tbd
-        self.fc1 = nn.Linear(state_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, action_dim)
+            #hidden layer 1
+            nn.Linear(state_dim//2, state_dim//4),
+            nn.ReLU(),
+
+            #hidden layer 2
+            nn.Linear(state_dim//4, state_dim//8),
+            nn.ReLU(),
+
+            #output layer
+            nn.Linear(state_dim//8, action_dim)
+        )
 
     def forward(self, x):
-        x = F.relu(self.fc1(x)) #relu activation function
-        return self.fc2(x)
+        return self.model(x)
 
-if __name__ == "__main__":
-    state_dim = 56 #cumulative length of arrays of observation dictionary
-    action_dim = 8 #number of possible actions
+"""
+#input side
+state_dim = 944
+action_dim = 8
 
-    dqn = deepqnetwork(state_dim, action_dim)
+#start network
+dqn = DQN(state_dim, action_dim)
 
-    state = torch.rand(1, state_dim) #random state to pass through network
-
-    output = dqn(state)
-    print(output)
+# Example forward pass
+state = torch.randn(1, state_dim)
+q_values = dqn(state)
+print(q_values)
+"""
