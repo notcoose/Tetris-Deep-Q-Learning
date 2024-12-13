@@ -94,7 +94,7 @@ def epsilon_greedy_action(dqn, state, epsilon, action_dim):
         return torch.argmax(q_values).item()
     
 class TetrisAgent:
-    def run(self, is_training = True, render_mode = "ansii"):
+    def run(self, is_training = True, render_mode = "ansi"):
         self.savedmodel = os.path.join(model_dir_name, "tetris_model.pt")
 
         self.recent_rewards = []
@@ -171,7 +171,7 @@ class TetrisAgent:
             while not terminated and episode_reward < 10000:
                 if render_mode == "human":
                     env.render()
-                elif render_mode == "ansii":
+                elif render_mode == "ansi":
                     print(env.render() + "\n")
         
                 # Get current state
