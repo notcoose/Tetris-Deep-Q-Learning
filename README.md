@@ -1,9 +1,5 @@
-# 412project
+# An Implementation of the Deep Q-Learning Algorithm with Tetris
 
+The Deep Q-Learning Algorithm, originally introduced in this [Nature paper](https://www.nature.com/articles/nature14236), is an extension of the traditional reinforcement algorithm Q-Learning. 
 
-Tetris-Gymnasium Citation:
-@booklet{EasyChair:13437,
-  author    = {Maximilian Weichart and Philipp Hartl},
-  title     = {Piece by Piece: Assembling a Modular Reinforcement Learning Environment for Tetris},
-  howpublished = {EasyChair Preprint 13437},
-  year      = {EasyChair, 2024}}
+This implementation utilizes Gymnasium, PyTorch, OpenCV, numPy, Matplotlib, and Seaborn with a requirements.txt coming soon
