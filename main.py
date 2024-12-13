@@ -44,6 +44,7 @@ def plot_cum_rewards(cum_rewards, i):
     plt.savefig(f"plots/Cumulative_Rewards/cumulative_plot{i}.png")
     plt.close()
 
+#our reward function
 def compute_line_clear_reward(lines_cleared):
     """Assign reward based on the number of lines cleared."""
     if lines_cleared == 1:
@@ -74,17 +75,11 @@ def compute_gaps_in_rows(grid):
                 gaps += 1
     return gaps
 
-
 def preprocess_state(observation):
     grid = observation['board']  # Assuming 'board' is the Tetris grid
     if len(grid.shape) == 2:  # If the grid is 2D, add only a channel dimension
         grid = grid[np.newaxis, :, :]
     return grid.astype(np.float32)
-
-
-
-
-
 
 def epsilon_greedy_action(dqn, state, epsilon, action_dim):
     #random number is used to decide action
@@ -97,9 +92,9 @@ def epsilon_greedy_action(dqn, state, epsilon, action_dim):
         with torch.no_grad():
             q_values = dqn(state_tensor)
         return torch.argmax(q_values).item()
-
+    
 class TetrisAgent:
-    def run(self, is_training = True, render_mode = "ansi"):
+    def run(self, is_training = True, render_mode = "ansii"):
         self.savedmodel = os.path.join(model_dir_name, "tetris_model.pt")
 
         self.recent_rewards = []
@@ -172,14 +167,12 @@ class TetrisAgent:
             if len(self.recent_rewards) > self.recent_rewards_window:
                 self.recent_rewards.pop(0)
 
-            if len(self.recent_rewards) > 0:
-                previous_avg_reward = np.mean(self.recent_rewards)
-            else:
-                previous_avg_reward = 0
-
             #1000 is arbitrary, change as you wish for early stopping
             while not terminated and episode_reward < 10000:
-                print(env.render() + "\n")
+                if render_mode == "human":
+                    env.render()
+                elif render_mode == "ansii":
+                    print(env.render() + "\n")
         
                 # Get current state
                 current_state = preprocess_state(state)
@@ -193,7 +186,6 @@ class TetrisAgent:
 
                 lines_cleared = info.get("lines_cleared", 0)  # Default to 0 if not provided
                 reward += compute_line_clear_reward(lines_cleared)
-
 
                 grid = next_state['board']
                 stack_height = compute_stack_height(grid)
@@ -217,7 +209,6 @@ class TetrisAgent:
                         preprocess_state(next_state), 
                         terminated
                     )
-
                     count += 1    
 
             traininglog.write(f"Episode: {episode}, Reward: {episode_reward}\n")
@@ -235,20 +226,15 @@ class TetrisAgent:
                     self.optimize(small_batch, dqn, target_dqn)
 
                     #update epsilon
-                    #if epsilon > epsilon_min:
-                    #    epsilon *= epsilon_decay
+                    if epsilon > epsilon_min:
+                        epsilon *= epsilon_decay
 
-                    
-                    
-
-
-                    #copies policy to target network eveyr 10 steps, change as you wish
+                    #copies policy to target network
                     # Soft update example
                     tau = 0.005  # Small update factor
                     for target_param, policy_param in zip(target_dqn.parameters(), dqn.parameters()):
                         target_param.data.copy_(tau * policy_param.data + (1 - tau) * target_param.data)
                     count = 0  # Reset count
-
 
             rewards.append(episode_reward)
             cumReward += episode_reward
@@ -309,8 +295,10 @@ class TetrisAgent:
         torch.nn.utils.clip_grad_norm_(dqn.parameters(), max_norm=1.0)
         self.optimizer.step()
 
-
-
 if __name__ == "__main__":
     agent = TetrisAgent()
+
+    # insert render_mode="human" for visual rendering like traditional tetris,
+    # defeult is ansii rendering in terminal
     agent.run()
+
